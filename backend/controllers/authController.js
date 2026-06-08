@@ -9,28 +9,29 @@ const generateToken = (id) => {
 };
 
 // @desc    Register new user
-// @route   POST /api/auth/signup
+// @route   POST /api/v1/auth/signup
 // @access  Public
 exports.signup = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, role } = req.body;
 
         if (!name || !email || !password) {
-            return res.status(400).json({ message: 'Please add all fields' });
+            return res.status(400).json({ success: false, message: 'Please add all fields' });
         }
 
         // Check if user exists
         const userExists = await User.findOne({ email });
 
         if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ success: false, message: 'User already exists' });
         }
 
         // Create user
         const user = await User.create({
             name,
             email,
-            password
+            password,
+            role: role || 'user'
         });
 
         if (user) {
@@ -38,18 +39,19 @@ exports.signup = async (req, res) => {
                 _id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 token: generateToken(user._id)
             });
         } else {
-            res.status(400).json({ message: 'Invalid user data' });
+            res.status(400).json({ success: false, message: 'Invalid user data' });
         }
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
     }
 };
 
 // @desc    Authenticate a user
-// @route   POST /api/auth/login
+// @route   POST /api/v1/auth/login
 // @access  Public
 exports.login = async (req, res) => {
     try {
@@ -63,23 +65,36 @@ exports.login = async (req, res) => {
                 _id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 token: generateToken(user._id)
             });
         } else {
-            res.status(401).json({ message: 'Invalid credentials' });
+            res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
     }
 };
 
 // @desc    Get user data
-// @route   GET /api/auth/me
+// @route   GET /api/v1/auth/me
 // @access  Private
 exports.getMe = async (req, res) => {
     try {
         res.status(200).json(req.user);
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Get all users
+// @route   GET /api/v1/auth/users
+// @access  Private/Admin
+exports.getUsers = async (req, res) => {
+    try {
+        const users = await User.find({}).select('-password');
+        res.status(200).json(users);
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
     }
 };

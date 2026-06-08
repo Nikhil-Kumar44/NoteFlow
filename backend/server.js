@@ -2,6 +2,9 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const helmet = require('helmet');
+const swaggerUi = require('swagger-ui-express');
+const swaggerDocument = require('./swagger.json');
 
 // Load env vars
 dotenv.config();
@@ -11,32 +14,75 @@ const noteRoutes = require('./routes/noteRoutes');
 
 const app = express();
 
-// Middleware
+// Security Middleware
+app.use(helmet());
+
+// Custom MongoDB Sanitization middleware to support Express 5 read-only req.query
+app.use((req, res, next) => {
+    const sanitize = (obj) => {
+        if (obj && typeof obj === 'object') {
+            for (const key in obj) {
+                if (key.startsWith('$') || key.includes('.')) {
+                    delete obj[key];
+                } else {
+                    sanitize(obj[key]);
+                }
+            }
+        }
+    };
+    if (req.body) sanitize(req.body);
+    if (req.params) sanitize(req.params);
+    if (req.query) sanitize(req.query);
+    next();
+});
+
+// Body parser
 app.use(express.json());
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+
+// CORS Configuration
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+if (process.env.FRONTEND_URL) {
+    const envOrigins = process.env.FRONTEND_URL.split(',').map(o => o.trim());
+    allowedOrigins.push(...envOrigins);
+}
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
 
 // Database Connection
-// In a real app we'd connect to the real URI. For this demo, let's use in-memory mongo or just connect to the provided URI and let it fail if invalid, though usually we want a fallback or handle connection gracefully.
-// Wait, the prompt says "MongoDB Atlas connection", so the user will provide their own later. We will just set it up to connect.
 mongoose.connect(process.env.MONGODB_URI, {
     dbName: process.env.DB_NAME
 })
 .then(() => console.log(`MongoDB Connected: ${process.env.DB_NAME}`))
 .catch(err => console.error('MongoDB Connection Error:', err.message));
 
+// Swagger API Documentation Route
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/notes', noteRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/notes', noteRoutes);
 
 // Base route
 app.get('/', (req, res) => {
-    res.send('NoteFlow API is running');
+    res.send('NoteFlow API is running. Documentation at /api-docs');
 });
 
-// Global error handler
+// Centralized error handler
 app.use((err, req, res, next) => {
     console.error(err.stack);
-    res.status(500).json({ message: 'Something went wrong!', error: err.message });
+    res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Something went wrong!'
+    });
 });
 
 // Start server

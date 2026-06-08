@@ -12,14 +12,22 @@ const Dashboard = () => {
     const [currentNote, setCurrentNote] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [notification, setNotification] = useState(null);
     
     const { user } = useAuth();
+
+    const showNotification = (message, type = 'success') => {
+        setNotification({ message, type });
+        setTimeout(() => {
+            setNotification(null);
+        }, 3000);
+    };
 
     const fetchNotes = async (search = '') => {
         try {
             setLoading(true);
             const token = JSON.parse(localStorage.getItem('user'))?.token;
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/notes${search ? `?search=${search}` : ''}`, {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/v1/notes${search ? `?search=${search}` : ''}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setNotes(res.data);
@@ -49,16 +57,18 @@ const Dashboard = () => {
             const config = { headers: { Authorization: `Bearer ${token}` } };
             
             if (currentNote) {
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/notes/${currentNote._id}`, noteData, config);
+                await axios.put(`${import.meta.env.VITE_API_URL}/api/v1/notes/${currentNote._id}`, noteData, config);
+                showNotification('Note updated successfully', 'success');
             } else {
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/notes`, noteData, config);
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/v1/notes`, noteData, config);
+                showNotification('Note created successfully', 'success');
             }
             
             setIsModalOpen(false);
             setCurrentNote(null);
             fetchNotes(searchQuery);
         } catch (err) {
-            alert(err.response?.data?.message || 'Failed to save note');
+            showNotification(err.response?.data?.message || 'Failed to save note', 'error');
         }
     };
 
@@ -66,12 +76,13 @@ const Dashboard = () => {
         if (window.confirm('Are you sure you want to delete this note?')) {
             try {
                 const token = JSON.parse(localStorage.getItem('user'))?.token;
-                await axios.delete(`${import.meta.env.VITE_API_URL}/api/notes/${id}`, {
+                await axios.delete(`${import.meta.env.VITE_API_URL}/api/v1/notes/${id}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
+                showNotification('Note deleted successfully', 'success');
                 fetchNotes(searchQuery);
             } catch (err) {
-                alert('Failed to delete note');
+                showNotification('Failed to delete note', 'error');
             }
         }
     };
@@ -83,8 +94,14 @@ const Dashboard = () => {
 
     return (
         <div className="container">
+            {notification && (
+                <div className={`toast-notification ${notification.type}`}>
+                    <span>{notification.message}</span>
+                </div>
+            )}
+            
             <div className="dashboard-header">
-                <h2>My Notes</h2>
+                <h2>{user?.role === 'admin' ? 'All Notes (Admin Mode)' : 'My Notes'}</h2>
                 <div className="search-bar">
                     <Search className="search-icon" size={20} />
                     <input 
@@ -105,14 +122,18 @@ const Dashboard = () => {
                 <div style={{ textAlign: 'center', padding: '3rem' }}>Loading notes...</div>
             ) : notes.length > 0 ? (
                 <div className="notes-grid">
-                    {notes.map(note => (
-                        <NoteCard 
-                            key={note._id} 
-                            note={note} 
-                            onEdit={() => openModal(note)} 
-                            onDelete={() => handleDelete(note._id)} 
-                        />
-                    ))}
+                    {notes.map(note => {
+                        const noteOwnerId = note.userId && typeof note.userId === 'object' ? note.userId._id : note.userId;
+                        const isOwner = noteOwnerId === user?._id || noteOwnerId === user?.id;
+                        return (
+                            <NoteCard 
+                                key={note._id} 
+                                note={note} 
+                                onEdit={isOwner ? () => openModal(note) : null} 
+                                onDelete={() => handleDelete(note._id)} 
+                            />
+                        );
+                    })}
                 </div>
             ) : (
                 <div className="empty-state">
